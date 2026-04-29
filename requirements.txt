@@ -1,0 +1,22 @@
+# ── Web Framework ─────────────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9        # file uploads
+
+# ── Image Processing ───────────────────────────────────────────────────────
+opencv-python-headless>=4.9.0
+Pillow>=10.2.0
+numpy>=1.26.0
+
+# ── Deep Learning — Core ──────────────────────────────────────────────────
+torch>=2.2.0                   # CPU works fine for demo; GPU dramatically faster
+torchvision>=0.17.0
+
+# ── BLIP Model + Tokenizer ────────────────────────────────────────────────
+transformers>=4.38.0           # BlipProcessor, BlipForConditionalGeneration
+huggingface-hub>=0.21.0        # model download/cache management
+accelerate>=0.27.0             # fast model loading (device_map)
+sentencepiece>=0.1.99          # some tokenizers need this
+
+# ── Testing ────────────────────────────────────────────────────────────────
+httpx>=0.28.0                  # FastAPI TestClient

@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>VisionCaption · AI Image Captioning</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=JetBrains+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg:       #0e0c0a;
+      --surface:  #141210;
+      --panel:    #1a1714;
+      --card:     #201d19;
+      --border:   rgba(255,220,140,0.08);
+      --amber:    #f5a623;
+      --gold:     #e8c87a;
+      --cream:    #f0e6d0;
+      --rust:     #c45c2a;
+      --muted:    #6b5f4e;
+      --soft:     #a89880;
+      --text:     #ede5d8;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Outfit', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Grain texture overlay */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+    }
+
+    body::after {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse 60% 40% at 20% 10%, rgba(245,166,35,0.05) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 30% at 80% 90%, rgba(196,92,42,0.04) 0%, transparent 60%);
+    }
+
+    /* ══════════ HEADER ══════════ */
+    header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 2.5rem;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(24px);
+      background: rgba(14,12,10,0.85);
+    }
+
+    .logo {
+      display: flex; align-items: center; gap: 0.75rem;
+      cursor: pointer; text-decoration: none;
+    }
+
+    .logo-icon {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--amber), var(--rust));
+      display: grid; place-items: center; font-size: 1.1rem;
+      box-shadow: 0 0 20px rgba(245,166,35,0.35);
+    }
+
+    .logo-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px;
+      color: var(--cream);
+    }
+
+    .logo-text span { color: var(--amber); font-style: italic; }
+
+    .header-right { display: flex; align-items: center; gap: 1rem; }
+
+    .model-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem; color: var(--amber);
+      border: 1px solid rgba(245,166,35,0.22);
+      background: rgba(245,166,35,0.06);
+      padding: 0.25rem 0.7rem; border-radius: 100px;
+      display: flex; align-items: center; gap: 0.35rem;
+    }
+
+    .status-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--amber); animation: pulse 2.5s infinite;
+    }
+
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.8)} }
+
+    /* ══════════ PAGES ══════════ */
+    .page { min-height: 100vh; position: relative; z-index: 1; }
+
+    /* ══════════ LANDING ══════════ */
+    #pg-landing {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 5rem 2rem 3rem; text-align: center;
+    }
+
+    .lander-pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem; color: var(--amber);
+      letter-spacing: 3px; text-transform: uppercase;
+      border: 1px solid rgba(245,166,35,0.2);
+      padding: 0.3rem 1rem; border-radius: 100px;
+      margin-bottom: 2rem;
+      animation: fadeup 0.7s ease both;
+    }
+
+    .lander-h1 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(3.5rem, 8vw, 7rem);
+      font-weight: 700; line-height: 0.95;
+      letter-spacing: -2px; color: var(--cream);
+      max-width: 860px;
+      animation: fadeup 0.7s 0.1s ease both;
+    }
+
+    .lander-h1 em { color: var(--amber); font-style: italic; }
+    .lander-h1 .dim { color: var(--muted); }
+
+    .lander-sub {
+      font-size: 1.05rem; color: var(--soft);
+      max-width: 520px; line-height: 1.8;
+      margin: 1.75rem auto 0; font-weight: 300;
+      animation: fadeup 0.7s 0.2s ease both;
+    }
+
+    /* Capability pills */
+    .caps-grid {
+      display: flex; gap: 0.75rem; flex-wrap: wrap;
+      justify-content: center; max-width: 700px;
+      margin: 2.5rem auto 0;
+      animation: fadeup 0.7s 0.3s ease both;
+    }
+
+    .cap {
+      display: flex; align-items: center; gap: 0.45rem;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 0.7rem 1.1rem;
+      font-size: 0.82rem; color: var(--soft);
+      transition: all 0.25s;
+    }
+
+    .cap:hover { border-color: rgba(245,166,35,0.25); color: var(--cream); }
+    .cap .ci { font-size: 1rem; }
+
+    .cta-group {
+      display: flex; gap: 0.8rem; justify-content: center; flex-wrap: wrap;
+      margin: 2.75rem 0 0;
+      animation: fadeup 0.7s 0.4s ease both;
+    }
+
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 0.6rem;
+      padding: 0.95rem 2.4rem;
+      background: var(--amber); color: #0e0c0a;
+      font-family: 'Outfit', sans-serif; font-size: 0.95rem; font-weight: 600;
+      border: none; border-radius: 12px; cursor: pointer;
+      transition: all 0.25s; box-shadow: 0 0 30px rgba(245,166,35,0.28);
+    }
+
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(245,166,35,0.45); }
+
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: 0.6rem;
+      padding: 0.95rem 2rem;
+      background: transparent; color: var(--soft);
+      font-family: 'Outfit', sans-serif; font-size: 0.95rem; font-weight: 500;
+      border: 1px solid var(--border); border-radius: 12px; cursor: pointer;
+      transition: all 0.25s;
+    }
+
+    .btn-ghost:hover { border-color: rgba(245,166,35,0.3); color: var(--cream); }
+
+    /* Live caption demo preview on landing */
+    .demo-preview {
+      max-width: 680px; width: 100%; margin: 3.5rem auto 0;
+      animation: fadeup 0.7s 0.5s ease both;
+    }
+
+    .demo-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 20px; padding: 1.5rem; text-align: left;
+      position: relative; overflow: hidden;
+    }
+
+    .demo-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--amber), transparent);
+      opacity: 0.4;
+    }
+
+    .demo-label {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.6rem;
+      color: var(--muted); letter-spacing: 2px; text-transform: uppercase;
+      margin-bottom: 0.7rem;
+    }
+
+    .demo-caption-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.4rem; font-style: italic; color: var(--cream);
+      line-height: 1.5;
+    }
+
+    .demo-captions { display: flex; flex-direction: column; gap: 0.4rem; }
+
+    .demo-c {
+      display: flex; align-items: flex-start; gap: 0.7rem;
+      padding: 0.6rem 0.8rem; border-radius: 10px;
+      background: rgba(255,255,255,0.025);
+    }
+
+    .demo-rank {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.65rem;
+      color: var(--amber); min-width: 18px; margin-top: 2px;
+    }
+
+    .demo-txt {
+      font-family: 'Cormorant Garamond', serif; font-size: 1rem;
+      font-style: italic; color: var(--soft); line-height: 1.4;
+    }
+
+    /* Architecture diagram section */
+    .arch-section {
+      max-width: 860px; margin: 4rem auto 0; padding: 0 2rem;
+      animation: fadeup 0.7s 0.6s ease both;
+    }
+
+    .arch-title {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.62rem;
+      color: var(--muted); letter-spacing: 2px; text-transform: uppercase;
+      margin-bottom: 1.2rem; text-align: center;
+    }
+
+    .arch-row {
+      display: flex; align-items: center; gap: 0.5rem;
+      flex-wrap: wrap; justify-content: center;
+    }
+
+    .arch-block {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 0.9rem 1.2rem; text-align: center;
+      min-width: 110px;
+    }
+
+    .arch-block .ab-icon { font-size: 1.4rem; margin-bottom: 0.25rem; }
+
+    .arch-block .ab-name {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.62rem;
+      color: var(--amber); text-transform: uppercase; letter-spacing: 1px;
+    }
+
+    .arch-block .ab-sub {
+      font-size: 0.7rem; color: var(--muted); margin-top: 0.15rem;
+    }
+
+    .arch-arrow {
+      font-size: 1.2rem; color: var(--muted);
+    }
+
+    /* ══════════ APP PAGE ══════════ */
+    #pg-app {
+      display: none; flex-direction: column;
+      padding-top: 64px; min-height: 100vh;
+    }
+
+    .app-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1.2rem 2.5rem; max-width: 1400px; margin: 0 auto; width: 100%;
+    }
+
+    .app-bar-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.2rem; font-weight: 600; color: var(--cream);
+    }
+
+    .back-btn {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.65rem;
+      color: var(--muted); background: transparent;
+      border: 1px solid var(--border); padding: 0.3rem 0.8rem;
+      border-radius: 8px; cursor: pointer; transition: all 0.2s;
+    }
+
+    .back-btn:hover { color: var(--cream); border-color: rgba(245,166,35,0.25); }
+
+    /* Mode Tabs */
+    .mode-tabs {
+      display: flex; justify-content: center; gap: 0.35rem;
+      max-width: 380px; margin: 0 auto 1.5rem;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 0.3rem;
+    }
+
+    .tab {
+      flex: 1; padding: 0.58rem 1rem;
+      border: none; border-radius: 8px;
+      font-family: 'Outfit', sans-serif; font-size: 0.85rem; font-weight: 500;
+      cursor: pointer; transition: all 0.2s;
+      background: transparent; color: var(--muted);
+    }
+
+    .tab.on {
+      background: var(--amber); color: #0e0c0a; font-weight: 600;
+      box-shadow: 0 0 14px rgba(245,166,35,0.28);
+    }
+
+    /* App layout */
+    .app-layout {
+      display: flex; gap: 1.5rem;
+      max-width: 1400px; margin: 0 auto;
+      padding: 0 2rem 4rem; flex-wrap: wrap;
+    }
+
+    .col-main { flex: 1; min-width: 360px; display: flex; flex-direction: column; gap: 1.2rem; }
+    .col-side  { width: 310px; display: flex; flex-direction: column; gap: 1.2rem; }
+
+    /* Panel box */
+    .pbox {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 18px; padding: 1.5rem; position: relative; overflow: hidden;
+    }
+
+    .pbox::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(245,166,35,0.3), transparent);
+    }
+
+    /* ── Drop Zone ── */
+    .dropzone {
+      border: 2px dashed rgba(245,166,35,0.16);
+      border-radius: 14px; padding: 3.5rem 2rem; text-align: center;
+      cursor: pointer; transition: all 0.3s;
+      background: rgba(245,166,35,0.015); position: relative;
+    }
+
+    .dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .dropzone:hover, .dropzone.drag-on {
+      border-color: var(--amber); background: rgba(245,166,35,0.05);
+    }
+
+    .dz-icon { font-size: 2.5rem; margin-bottom: 0.65rem; }
+
+    .dz-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.25rem; font-weight: 600; color: var(--cream);
+      margin-bottom: 0.3rem;
+    }
+
+    .dz-sub {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.62rem;
+      color: var(--muted); letter-spacing: 0.5px;
+    }
+
+    /* ── Preview ── */
+    .img-preview {
+      display: none; border-radius: 12px; overflow: hidden;
+      background: #060504; position: relative;
+    }
+
+    .img-preview.on { display: block; }
+    .img-preview img { width: 100%; display: block; max-height: 520px; object-fit: contain; }
+
+    .preview-actions {
+      position: absolute; top: 10px; right: 10px;
+      display: flex; gap: 0.4rem;
+    }
+
+    .pact-btn {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.6rem;
+      color: var(--cream); background: rgba(14,12,10,0.82);
+      border: 1px solid rgba(255,255,255,0.1); padding: 0.3rem 0.6rem;
+      border-radius: 7px; cursor: pointer; transition: all 0.2s;
+      backdrop-filter: blur(8px);
+    }
+
+    .pact-btn:hover { border-color: rgba(245,166,35,0.4); color: var(--amber); }
+    .pact-btn.attn-on { background: rgba(245,166,35,0.15); border-color: rgba(245,166,35,0.5); color: var(--amber); }
+
+    /* ── Controls bar ── */
+    .controls-bar {
+      display: flex; gap: 0.75rem; align-items: flex-end;
+      flex-wrap: wrap; margin-top: 1rem;
+    }
+
+    .ctrl-group { display: flex; flex-direction: column; gap: 0.35rem; }
+
+    .ctrl-label {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.58rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+    }
+
+    .ctrl-select {
+      background: var(--panel); border: 1px solid var(--border);
+      color: var(--cream); font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem; padding: 0.45rem 0.75rem;
+      border-radius: 9px; cursor: pointer; outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .ctrl-select:focus { border-color: rgba(245,166,35,0.3); }
+
+    .ctrl-input {
+      background: var(--panel); border: 1px solid var(--border);
+      color: var(--cream); font-family: 'Outfit', sans-serif;
+      font-size: 0.82rem; padding: 0.45rem 0.75rem;
+      border-radius: 9px; outline: none; width: 220px;
+      transition: border-color 0.2s;
+    }
+
+    .ctrl-input::placeholder { color: var(--muted); }
+    .ctrl-input:focus { border-color: rgba(245,166,35,0.3); }
+
+    .gen-btn {
+      padding: 0.6rem 2rem; background: var(--amber); color: #0e0c0a;
+      font-family: 'Outfit', sans-serif; font-size: 0.88rem; font-weight: 600;
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: all 0.25s; white-space: nowrap;
+      box-shadow: 0 0 18px rgba(245,166,35,0.2);
+    }
+
+    .gen-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 28px rgba(245,166,35,0.38); }
+    .gen-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    .gen-btn.hide { display: none; }
+
+    /* ── Loader ── */
+    .loader {
+      display: none; align-items: center; gap: 0.65rem;
+      padding: 0.9rem; justify-content: center;
+    }
+
+    .loader.on { display: flex; }
+
+    .spin {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(245,166,35,0.15); border-top-color: var(--amber);
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to{transform:rotate(360deg)} }
+    .ltxt { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--amber); }
+
+    /* ── Section header ── */
+    .sec-hd {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.6rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 2px;
+      margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;
+    }
+
+    .sec-hd::before { content:''; display:block; width:14px; height:2px; background:var(--amber); }
+
+    /* ── Caption results ── */
+    .caption-list { display: flex; flex-direction: column; gap: 0.65rem; }
+
+    .caption-item {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1rem 1.1rem;
+      display: flex; gap: 0.85rem; align-items: flex-start;
+      cursor: pointer; transition: all 0.25s; position: relative;
+    }
+
+    .caption-item:hover { border-color: rgba(245,166,35,0.2); }
+    .caption-item.best { border-color: rgba(245,166,35,0.35); background: rgba(245,166,35,0.04); }
+
+    .ci-rank {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.65rem;
+      color: var(--amber); min-width: 20px; margin-top: 2px;
+    }
+
+    .ci-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.15rem; font-style: italic; color: var(--cream);
+      line-height: 1.5; flex: 1;
+    }
+
+    .ci-score {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.6rem;
+      color: var(--muted); white-space: nowrap; margin-top: 3px;
+    }
+
+    .ci-copy {
+      position: absolute; top: 8px; right: 8px;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.55rem;
+      color: var(--muted); background: var(--card);
+      border: 1px solid var(--border); padding: 0.15rem 0.45rem;
+      border-radius: 5px; cursor: pointer; opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .caption-item:hover .ci-copy { opacity: 1; }
+
+    /* Typewriter effect */
+    .typewriter-container {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.35rem; font-style: italic; color: var(--cream);
+      line-height: 1.6; padding: 1.2rem 0; min-height: 80px;
+      border-bottom: 1px solid var(--border); margin-bottom: 1rem;
+    }
+
+    .cursor { display: inline-block; width: 2px; height: 1.1em; background: var(--amber); vertical-align: text-bottom; animation: blink 1s step-end infinite; margin-left: 2px; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* Meta grid */
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.9rem; }
+
+    .mi {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 9px; padding: 0.55rem 0.7rem;
+    }
+
+    .mk {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.55rem;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+    }
+
+    .mv {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.9rem;
+      font-weight: 500; color: var(--amber); margin-top: 0.1rem;
+    }
+
+    /* History */
+    .hist-list { display: flex; flex-direction: column; gap: 0.45rem; max-height: 280px; overflow-y: auto; }
+
+    .hist-item {
+      display: flex; gap: 0.65rem; align-items: flex-start;
+      padding: 0.6rem 0.7rem; border-radius: 9px;
+      background: var(--panel); border: 1px solid var(--border);
+      transition: border-color 0.2s;
+    }
+
+    .hist-item:hover { border-color: rgba(245,166,35,0.15); }
+
+    .hist-thumb {
+      width: 38px; height: 38px; border-radius: 6px;
+      object-fit: cover; flex-shrink: 0;
+    }
+
+    .hist-cap {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 0.88rem; font-style: italic; color: var(--soft);
+      line-height: 1.4; flex: 1;
+    }
+
+    /* Empty state */
+    .empty {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 0.4rem; padding: 2rem;
+      color: var(--muted); text-align: center;
+    }
+
+    .ei { font-size: 1.8rem; opacity: 0.3; }
+    .et { font-size: 0.8rem; font-style: italic; }
+
+    /* ══════════ CAMERA MODE ══════════ */
+    .cam-wrap {
+      position: relative; background: #060504; border-radius: 14px;
+      overflow: hidden; aspect-ratio: 16/9; min-height: 360px;
+    }
+
+    .cam-wrap video {
+      width: 100%; height: 100%; object-fit: cover;
+      transform: scaleX(-1); border-radius: 14px;
+    }
+
+    .cam-overlay {
+      position: absolute; inset: 0; pointer-events: none;
+      border-radius: 14px;
+    }
+
+    .cam-caption-bar {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(14,12,10,0.92));
+      padding: 2rem 1.5rem 1.2rem;
+    }
+
+    .cam-cap-live {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.35rem; font-style: italic; color: var(--cream);
+      line-height: 1.4; text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+      min-height: 60px;
+    }
+
+    .cam-meta-bar {
+      display: flex; align-items: center; gap: 0.7rem;
+      margin-top: 0.5rem;
+    }
+
+    .cam-badge {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.58rem;
+      color: var(--amber); background: rgba(245,166,35,0.1);
+      border: 1px solid rgba(245,166,35,0.2);
+      padding: 0.15rem 0.5rem; border-radius: 5px;
+    }
+
+    .cam-controls { display: flex; gap: 0.6rem; margin-top: 0.9rem; flex-wrap: wrap; }
+
+    .cbtn {
+      flex: 1; min-width: 90px; padding: 0.62rem 0.9rem;
+      border-radius: 9px; border: none; cursor: pointer;
+      font-family: 'Outfit', sans-serif; font-size: 0.82rem; font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .cbtn-start { background: var(--amber); color: #0e0c0a; }
+    .cbtn-start:hover { box-shadow: 0 0 18px rgba(245,166,35,0.35); }
+    .cbtn-stop  { background: var(--rust); color: #fff; }
+    .cbtn-snap  { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+
+    /* ══════════ TOAST ══════════ */
+    .toast {
+      position: fixed; bottom: 1.5rem; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--card); border: 1px solid rgba(245,166,35,0.25);
+      color: var(--amber); font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem; padding: 0.5rem 1.1rem; border-radius: 8px;
+      z-index: 999; transition: transform 0.3s ease;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    .toast.on { transform: translateX(-50%) translateY(0); }
+
+    /* ══════════ UTILS ══════════ */
+    @keyframes fadeup { from{opacity:0;transform:translateY(18px)} to{opacity:1;transform:translateY(0)} }
+
+    @media(max-width: 800px) {
+      .col-side { width: 100%; }
+      .app-layout { padding: 0 1rem 3rem; }
+      .lander-h1 { font-size: clamp(2.8rem, 10vw, 5rem); }
+      header { padding: 0.85rem 1.2rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════ HEADER ══════ -->
+<header>
+  <div class="logo" onclick="goLanding()">
+    <div class="logo-icon">👁</div>
+    <div class="logo-text">Vision<span>Caption</span></div>
+  </div>
+  <div class="header-right">
+    <div class="model-badge">
+      <div class="status-dot" id="sDot"></div>
+      <span id="sLabel">INITIALISING</span>
+    </div>
+  </div>
+</header>
+
+<!-- ══════ LANDING PAGE ══════ -->
+<div class="page" id="pg-landing" style="padding-top:64px">
+  <div style="max-width:900px;margin:0 auto;padding:4rem 2rem 2rem;text-align:center">
+
+    <div class="lander-pre">BLIP · ViT-L/16 · Causal Transformer · IBM ICE · AI/ML Major</div>
+
+    <h1 class="lander-h1">
+      Give Images<br/>
+      <em>a Voice</em><br/>
+      <span class="dim">with AI</span>
+    </h1>
+
+    <p class="lander-sub">
+      Upload any photograph. Watch a neural network read it — then describe
+      it in natural English, word by word, just like a human would.
+    </p>
+
+    <div class="caps-grid">
+      <div class="cap"><span class="ci">🔭</span> Vision Transformer Encoder</div>
+      <div class="cap"><span class="ci">📝</span> Beam Search · 3 Captions</div>
+      <div class="cap"><span class="ci">🎲</span> Creative Nucleus Sampling</div>
+      <div class="cap"><span class="ci">🔥</span> Attention Heatmap Overlay</div>
+      <div class="cap"><span class="ci">📷</span> Live Webcam Captioning</div>
+      <div class="cap"><span class="ci">💬</span> Text-Prompt Conditioning</div>
+    </div>
+
+    <div class="cta-group">
+      <button class="btn-primary" onclick="goApp('image')">
+        ✦ Start Captioning <span style="opacity:0.7">→</span>
+      </button>
+      <button class="btn-ghost" onclick="goApp('camera')">
+        📷 Try Live Webcam
+      </button>
+    </div>
+  </div>
+
+  <!-- Architecture diagram -->
+  <div class="arch-section">
+    <div class="arch-title">Model Architecture</div>
+    <div class="arch-row">
+      <div class="arch-block">
+        <div class="ab-icon">🖼️</div>
+        <div class="ab-name">Image</div>
+        <div class="ab-sub">Any photo</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-block">
+        <div class="ab-icon">🔲</div>
+        <div class="ab-name">Patch Split</div>
+        <div class="ab-sub">16×16 tiles</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-block">
+        <div class="ab-icon">🤖</div>
+        <div class="ab-name">ViT Encoder</div>
+        <div class="ab-sub">Self-attention</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-block">
+        <div class="ab-icon">🧠</div>
+        <div class="ab-name">Cross-Attn</div>
+        <div class="ab-sub">Image→Text</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-block">
+        <div class="ab-icon">✍️</div>
+        <div class="ab-name">Decoder</div>
+        <div class="ab-sub">Token-by-token</div>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-block">
+        <div class="ab-icon">💬</div>
+        <div class="ab-name">Caption</div>
+        <div class="ab-sub">Natural English</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sample outputs preview -->
+  <div class="demo-preview">
+    <div class="demo-card">
+      <div class="demo-label">Sample beam search output — 3 candidates</div>
+      <div class="demo-captions">
+        <div class="demo-c">
+          <div class="demo-rank">#1</div>
+          <div class="demo-txt">A golden retriever sitting in a field of tall grass at sunset, looking off into the distance.</div>
+        </div>
+        <div class="demo-c">
+          <div class="demo-rank">#2</div>
+          <div class="demo-txt">A dog resting in an open meadow as the evening light turns the sky amber.</div>
+        </div>
+        <div class="demo-c">
+          <div class="demo-rank">#3</div>
+          <div class="demo-txt">A fluffy yellow dog in a field with warm light behind it.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height: 3rem"></div>
+</div>
+
+<!-- ══════ APP PAGE ══════ -->
+<div class="page" id="pg-app">
+  <div class="app-bar">
+    <div class="app-bar-title">Image Captioning · BLIP-Large</div>
+    <button class="back-btn" onclick="goLanding()">← Home</button>
+  </div>
+
+  <div class="mode-tabs">
+    <button class="tab on" id="tab-img" onclick="switchMode('image')">🖼 Upload</button>
+    <button class="tab"    id="tab-cam" onclick="switchMode('camera')">📷 Webcam</button>
+  </div>
+
+  <!-- ── IMAGE MODE ── -->
+  <div class="app-layout" id="mode-image">
+    <div class="col-main">
+      <!-- Upload / Preview -->
+      <div class="pbox">
+        <div class="dropzone" id="dz">
+          <input type="file" id="fi" accept="image/*"/>
+          <div class="dz-icon">📸</div>
+          <div class="dz-title">Drop an image here</div>
+          <div class="dz-sub">JPG · PNG · WEBP · up to 20 MB</div>
+        </div>
+
+        <div class="img-preview" id="imgPreview">
+          <img id="previewImg" src="" alt=""/>
+          <div class="preview-actions">
+            <button class="pact-btn" onclick="resetImg()">✕ Change</button>
+            <button class="pact-btn" id="attnBtn" onclick="toggleAttn()" title="Toggle attention heatmap">🔥 Attention</button>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls-bar" id="ctrlBar" style="display:none">
+          <div class="ctrl-group">
+            <span class="ctrl-label">Mode</span>
+            <select class="ctrl-select" id="modeSelect">
+              <option value="beam">Beam Search (Best)</option>
+              <option value="sample">Nucleus Sampling (Creative)</option>
+              <option value="greedy">Greedy (Fastest)</option>
+            </select>
+          </div>
+          <div class="ctrl-group">
+            <span class="ctrl-label">Captions</span>
+            <select class="ctrl-select" id="numSelect">
+              <option value="1">1</option>
+              <option value="3" selected>3</option>
+              <option value="5">5</option>
+            </select>
+          </div>
+          <div class="ctrl-group">
+            <span class="ctrl-label">Prompt (optional)</span>
+            <input class="ctrl-input" id="promptInput" type="text" placeholder='e.g. "a photograph of"'/>
+          </div>
+          <button class="gen-btn" id="genBtn" onclick="doCaption()">✦ Generate Captions</button>
+        </div>
+
+        <div class="loader" id="imgLoader">
+          <div class="spin"></div>
+          <span class="ltxt">Running BLIP inference…</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-side">
+      <!-- Results panel -->
+      <div class="pbox">
+        <div class="sec-hd">Generated Captions</div>
+
+        <div class="empty" id="resEmpty">
+          <div class="ei">💬</div>
+          <div class="et">Upload an image to generate captions</div>
+        </div>
+
+        <div id="resContent" style="display:none">
+          <!-- Typewriter best caption -->
+          <div class="typewriter-container" id="twContainer"></div>
+
+          <!-- All caption candidates -->
+          <div class="caption-list" id="capList"></div>
+
+          <!-- Meta stats -->
+          <div class="meta-grid">
+            <div class="mi"><div class="mk">Inference</div><div class="mv" id="mInf">—</div></div>
+            <div class="mi"><div class="mk">Mode</div><div class="mv" id="mMode">—</div></div>
+            <div class="mi"><div class="mk">Model</div><div class="mv" id="mModel">—</div></div>
+            <div class="mi"><div class="mk">Image</div><div class="mv" id="mSize">—</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- History panel -->
+      <div class="pbox">
+        <div class="sec-hd">Session History</div>
+        <div class="empty" id="histEmpty">
+          <div class="ei">🗂</div>
+          <div class="et">Previous captions appear here</div>
+        </div>
+        <div class="hist-list" id="histList" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CAMERA MODE ── -->
+  <div class="app-layout" id="mode-camera" style="display:none">
+    <div class="col-main">
+      <div class="pbox">
+        <div class="cam-wrap" id="camWrap">
+          <video id="vid" autoplay muted playsinline></video>
+          <div class="cam-caption-bar">
+            <div class="cam-cap-live" id="camCapLive">
+              Start camera to begin live captioning…
+            </div>
+            <div class="cam-meta-bar">
+              <div class="cam-badge" id="camLatBadge">— ms</div>
+              <div class="cam-badge" id="camFrameBadge">Frame —</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cam-controls">
+          <button class="cbtn cbtn-start" id="startBtn" onclick="startCam()">▶ Start Camera</button>
+          <button class="cbtn cbtn-stop"  id="stopBtn"  onclick="stopCam()" style="display:none">⏹ Stop</button>
+          <button class="cbtn cbtn-snap"  onclick="snapCam()">📸 Snapshot</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-side">
+      <div class="pbox">
+        <div class="sec-hd">Live Caption Log</div>
+        <div class="empty" id="camLogEmpty">
+          <div class="ei">📷</div>
+          <div class="et">Captions update every ~3 seconds</div>
+        </div>
+        <div class="hist-list" id="camLog" style="display:none"></div>
+      </div>
+
+      <div class="pbox">
+        <div class="sec-hd">How Live Mode Works</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--muted);line-height:1.8">
+          1. Camera frame captured every 3s<br/>
+          2. Frame → WebSocket → FastAPI<br/>
+          3. BLIP beam search (3 beams)<br/>
+          4. Caption returned in JSON<br/>
+          5. Typewriter effect displayed<br/><br/>
+          <span style="color:var(--amber)">Tip:</span> Try pointing camera at<br/>
+          objects, scenes, or text!
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let file = null, lastResult = null, showAttn = false;
+let stream = null, ws = null, camTimer = null;
+const history = [];
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+function goLanding() {
+  document.getElementById('pg-landing').style.display = '';
+  document.getElementById('pg-app').style.display = 'none';
+  stopCam();
+}
+
+function goApp(mode = 'image') {
+  document.getElementById('pg-landing').style.display = 'none';
+  document.getElementById('pg-app').style.display = 'flex';
+  document.getElementById('pg-app').style.flexDirection = 'column';
+  switchMode(mode);
+}
+
+// ── Health ping ─────────────────────────────────────────────────────────────
+async function ping() {
+  try {
+    const r = await fetch('/api/health');
+    const d = await r.json();
+    document.getElementById('sLabel').textContent =
+      d.model?.status === 'ready' ? 'BLIP READY' : 'LOADING MODEL';
+    document.getElementById('sDot').style.background =
+      d.model?.status === 'ready' ? 'var(--amber)' : '#888';
+  } catch {
+    document.getElementById('sLabel').textContent = 'OFFLINE';
+    document.getElementById('sDot').style.background = 'var(--rust)';
+  }
+}
+
+// ── Mode switch ─────────────────────────────────────────────────────────────
+function switchMode(m) {
+  document.getElementById('mode-image').style.display  = m === 'image'  ? 'flex' : 'none';
+  document.getElementById('mode-camera').style.display = m === 'camera' ? 'flex' : 'none';
+  document.getElementById('tab-img').classList.toggle('on', m === 'image');
+  document.getElementById('tab-cam').classList.toggle('on', m === 'camera');
+  if (m !== 'camera') stopCam();
+}
+
+// ── File Handling ───────────────────────────────────────────────────────────
+const dz = document.getElementById('dz');
+const fi = document.getElementById('fi');
+
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag-on'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-on'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag-on');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+fi.addEventListener('change', () => { if (fi.files[0]) setFile(fi.files[0]); });
+
+function setFile(f) {
+  file = f; showAttn = false;
+  const r = new FileReader();
+  r.onload = e => {
+    document.getElementById('previewImg').src = e.target.result;
+    dz.style.display = 'none';
+    document.getElementById('imgPreview').classList.add('on');
+    document.getElementById('ctrlBar').style.display = 'flex';
+    document.getElementById('resEmpty').style.display = 'flex';
+    document.getElementById('resContent').style.display = 'none';
+    document.getElementById('attnBtn').classList.remove('attn-on');
+  };
+  r.readAsDataURL(f);
+}
+
+function resetImg() {
+  file = null; lastResult = null; showAttn = false;
+  document.getElementById('previewImg').src = '';
+  document.getElementById('imgPreview').classList.remove('on');
+  dz.style.display = '';
+  document.getElementById('ctrlBar').style.display = 'none';
+  document.getElementById('resEmpty').style.display = 'flex';
+  document.getElementById('resContent').style.display = 'none';
+  document.getElementById('attnBtn').classList.remove('attn-on');
+  fi.value = '';
+}
+
+function toggleAttn() {
+  if (!lastResult) return;
+  if (!lastResult.attention_b64) { toast('⚠ No attention map available'); return; }
+  showAttn = !showAttn;
+  document.getElementById('previewImg').src = showAttn
+    ? lastResult.attention_b64
+    : URL.createObjectURL(file);
+  document.getElementById('attnBtn').classList.toggle('attn-on', showAttn);
+  toast(showAttn ? '🔥 Showing attention heatmap' : '🖼 Showing original image');
+}
+
+// ── Caption Generation ──────────────────────────────────────────────────────
+async function doCaption() {
+  if (!file) return;
+
+  document.getElementById('genBtn').disabled = true;
+  document.getElementById('imgLoader').classList.add('on');
+  document.getElementById('resContent').style.display = 'none';
+  document.getElementById('resEmpty').style.display = 'none';
+
+  try {
+    const fd = new FormData();
+    fd.append('file',         file);
+    fd.append('mode',         document.getElementById('modeSelect').value);
+    fd.append('num_captions', document.getElementById('numSelect').value);
+    fd.append('prompt',       document.getElementById('promptInput').value);
+    fd.append('max_tokens',   '60');
+
+    const resp = await fetch('/api/caption', { method: 'POST', body: fd });
+    const data = await resp.json();
+
+    if (!data.success) { toast('⚠ ' + (data.error || 'Failed')); return; }
+
+    lastResult = data;
+    renderResults(data);
+    addHistory(data.captions[0], URL.createObjectURL(file));
+    toast(`✦ ${data.captions.length} caption${data.captions.length > 1 ? 's' : ''} generated · ${data.inference_ms}ms`);
+
+  } catch(e) { toast('⚠ Backend unreachable. Is the server running?'); }
+  finally {
+    document.getElementById('genBtn').disabled = false;
+    document.getElementById('imgLoader').classList.remove('on');
+  }
+}
+
+// ── Render Results ──────────────────────────────────────────────────────────
+function renderResults(data) {
+  document.getElementById('resContent').style.display = 'block';
+
+  // Typewriter animation for best caption
+  typewrite(document.getElementById('twContainer'), data.captions[0]);
+
+  // Caption cards
+  const list = document.getElementById('capList');
+  list.innerHTML = '';
+  data.captions.forEach((cap, i) => {
+    const score = data.scores?.[i] ?? 0;
+    const el = document.createElement('div');
+    el.className = 'caption-item' + (i === 0 ? ' best' : '');
+    el.innerHTML = `
+      <div class="ci-rank">#${i+1}</div>
+      <div class="ci-text">${cap}</div>
+      <div class="ci-score">${(score * 100).toFixed(1)}%</div>
+      <button class="ci-copy" onclick="copyText('${cap.replace(/'/g,"\\'")}')">copy</button>
+    `;
+    list.appendChild(el);
+  });
+
+  // Meta
+  document.getElementById('mInf').textContent   = data.inference_ms + 'ms';
+  document.getElementById('mMode').textContent  = data.mode;
+  document.getElementById('mModel').textContent = 'BLIP-L';
+  document.getElementById('mSize').textContent  = data.image_size;
+}
+
+// ── Typewriter Effect ───────────────────────────────────────────────────────
+function typewrite(el, text) {
+  el.innerHTML = '';
+  let i = 0;
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  el.appendChild(cursor);
+
+  const interval = setInterval(() => {
+    if (i >= text.length) { clearInterval(interval); return; }
+    el.insertBefore(document.createTextNode(text[i]), cursor);
+    i++;
+  }, 28);
+}
+
+// ── History ─────────────────────────────────────────────────────────────────
+function addHistory(caption, thumbSrc) {
+  history.unshift({ caption, thumbSrc });
+  if (history.length > 12) history.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const list = document.getElementById('histList');
+  const empty = document.getElementById('histEmpty');
+  if (history.length === 0) { empty.style.display='flex'; list.style.display='none'; return; }
+  empty.style.display = 'none';
+  list.style.display  = 'flex';
+  list.innerHTML = '';
+  history.forEach(h => {
+    const el = document.createElement('div');
+    el.className = 'hist-item';
+    el.innerHTML = `
+      <img class="hist-thumb" src="${h.thumbSrc}" alt=""/>
+      <div class="hist-cap">${h.caption}</div>
+    `;
+    list.appendChild(el);
+  });
+}
+
+// ── Camera Mode ─────────────────────────────────────────────────────────────
+async function startCam() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false
+    });
+    const vid = document.getElementById('vid');
+    vid.srcObject = stream; await vid.play();
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('stopBtn').style.display  = 'block';
+    connectCamWS();
+  } catch(e) { toast('⚠ Camera denied: ' + e.message); }
+}
+
+function stopCam() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  if (ws)     { ws.close(); ws = null; }
+  if (camTimer) { clearInterval(camTimer); camTimer = null; }
+  document.getElementById('startBtn').style.display = 'block';
+  document.getElementById('stopBtn').style.display  = 'none';
+  const vid = document.getElementById('vid');
+  if (vid) vid.srcObject = null;
+}
+
+function connectCamWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/stream`);
+  ws.onopen    = () => { toast('🔗 WebSocket connected'); startCamLoop(); };
+  ws.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.error) { toast('⚠ ' + d.error); return; }
+    onCamCaption(d);
+  };
+  ws.onclose = () => { if (camTimer) { clearInterval(camTimer); camTimer = null; } };
+  ws.onerror = () => { toast('⚠ WebSocket error'); stopCam(); };
+}
+
+function startCamLoop() {
+  const vid = document.getElementById('vid');
+  const cap = document.createElement('canvas');
+
+  camTimer = setInterval(() => {
+    if (!stream || vid.readyState < 2) return;
+    cap.width  = vid.videoWidth  || 640;
+    cap.height = vid.videoHeight || 480;
+    const ctx = cap.getContext('2d');
+    ctx.save(); ctx.scale(-1, 1); ctx.drawImage(vid, -cap.width, 0); ctx.restore();
+    const b64 = cap.toDataURL('image/jpeg', 0.65);
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(b64);
+  }, 3000);
+}
+
+let camFrameCount = 0;
+function onCamCaption(data) {
+  camFrameCount++;
+  const liveEl = document.getElementById('camCapLive');
+  typewrite(liveEl, data.caption);
+  document.getElementById('camLatBadge').textContent   = data.inference_ms + 'ms';
+  document.getElementById('camFrameBadge').textContent = `Frame ${data.frame_no}`;
+
+  // Add to cam log
+  const log   = document.getElementById('camLog');
+  const empty = document.getElementById('camLogEmpty');
+  empty.style.display = 'none';
+  log.style.display   = 'flex';
+
+  const el = document.createElement('div');
+  el.className = 'hist-item';
+  el.innerHTML = `
+    <div class="hist-cap" style="font-style:italic">#${data.frame_no} — ${data.caption}</div>
+  `;
+  log.insertBefore(el, log.firstChild);
+  if (log.children.length > 20) log.removeChild(log.lastChild);
+}
+
+function snapCam() {
+  if (!stream) { toast('⚠ Start camera first'); return; }
+  const vid = document.getElementById('vid');
+  const c   = document.createElement('canvas');
+  c.width = vid.videoWidth; c.height = vid.videoHeight;
+  const ctx = c.getContext('2d');
+  ctx.save(); ctx.scale(-1, 1); ctx.drawImage(vid, -c.width, 0); ctx.restore();
+  const a = document.createElement('a');
+  a.download = `visioncaption_${Date.now()}.jpg`;
+  a.href = c.toDataURL('image/jpeg', 0.92);
+  a.click();
+  toast('📸 Snapshot saved!');
+}
+
+// ── Utilities ───────────────────────────────────────────────────────────────
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => toast('✓ Copied to clipboard'));
+}
+
+function toast(msg, d = 3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('on');
+  setTimeout(() => t.classList.remove('on'), d);
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+ping();
+setInterval(ping, 15000);  // re-check model status every 15s during load
+</script>
+</body>
+</html>
