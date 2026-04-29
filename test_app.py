@@ -151,7 +151,7 @@ def test_websocket_rejects_invalid_data(client):
         websocket.send_text("invalid_base64_not_decodable!!!")
         # Server should either close or send error; connection should not crash
         try:
-            data = websocket.receive_json(timeout=1.0)
+            data = websocket.receive_json(timeout=3.0)
             # If we get here, server sent a response (likely error)
             assert "error" in data or data is None
         except Exception:

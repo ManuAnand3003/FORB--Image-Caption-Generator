@@ -21,15 +21,33 @@ import numpy as np
 from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from contextlib import asynccontextmanager
+from fastapi.concurrency import run_in_threadpool
 
 from captioner import caption_image, caption_frame, model_info as get_model_info
 
-# ─── App ─────────────────────────────────────────────────────────────────────
+
+# ─── App & Lifespan ───────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan handler that pre-loads the model without blocking the event loop."""
+    print("[VisionCaption] Pre-loading BLIP model at startup (threaded)…")
+    try:
+        from captioner import _load
+        # Load model in a thread to avoid blocking the event loop
+        await run_in_threadpool(_load)
+    except Exception as e:
+        print(f"[VisionCaption] Startup pre-load failed (will retry on first request): {e}")
+    yield
+
 
 app = FastAPI(
     title="VisionCaption API",
     description="Image captioning powered by BLIP (CNN + Transformer)",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -38,22 +56,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# ─── Startup: pre-load model ──────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup():
-    """
-    Pre-load the BLIP model at startup so the first request isn't slow.
-    In production, this runs once when the container boots.
-    """
-    print("[VisionCaption] Pre-loading BLIP model at startup…")
-    try:
-        from captioner import _load
-        _load()
-    except Exception as e:
-        print(f"[VisionCaption] Startup pre-load failed (will retry on first request): {e}")
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
@@ -84,12 +86,14 @@ async def api_caption(
     """
     try:
         raw = await file.read()
-        result = caption_image(
-            image_bytes   = raw,
-            num_captions  = min(max(num_captions, 1), 5),
-            mode          = mode,
-            prompt        = prompt.strip(),
-            max_new_tokens= min(max(max_tokens, 20), 120),
+        # Run synchronous ML inference in a thread to avoid blocking the event loop
+        result = await run_in_threadpool(
+            caption_image,
+            raw,
+            min(max(num_captions, 1), 5),
+            mode,
+            prompt.strip(),
+            min(max(max_tokens, 20), 120),
         )
         return {"success": True, **result}
 
@@ -126,7 +130,8 @@ async def ws_stream(websocket: WebSocket):
                 continue
 
             frame_no += 1
-            result = caption_frame(frame)
+            # Run synchronous frame captioning in threadpool
+            result = await run_in_threadpool(caption_frame, frame)
 
             await websocket.send_json({
                 "caption":      result["caption"],

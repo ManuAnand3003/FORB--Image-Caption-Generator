@@ -962,7 +962,7 @@
         <div style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--muted);line-height:1.8">
           1. Camera frame captured every 3s<br/>
           2. Frame → WebSocket → FastAPI<br/>
-          3. BLIP beam search (3 beams)<br/>
+          3. BLIP beam search (3 beams — speed vs quality tradeoff)<br/>
           4. Caption returned in JSON<br/>
           5. Typewriter effect displayed<br/><br/>
           <span style="color:var(--amber)">Tip:</span> Try pointing camera at<br/>
@@ -1174,6 +1174,9 @@ async function doCaption() {
       if (data.success) {
         usingPreviewMode = false;
         modelReady = true;
+        // If we recovered from preview mode, update the status dot/label
+        document.getElementById('sDot').style.background = 'var(--amber)';
+        document.getElementById('sLabel').textContent = 'BLIP READY';
       }
     } catch (err) {
       // Real endpoint failed/timed out; fallback to preview
