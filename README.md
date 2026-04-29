@@ -226,4 +226,4 @@ BLIP: HuggingFace hub (free for research & commercial). Transformers: MIT.
 
 ---
 
-**Built with ❤️ by IBM Innovation Centre for Education · 2026**
+**Built with ❤️ for Education · 2026**
