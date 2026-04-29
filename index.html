@@ -629,6 +629,67 @@
 
     .toast.on { transform: translateX(-50%) translateY(0); }
 
+    /* ══════════ LOADING MODAL ══════════ */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000;
+      display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px);
+    }
+
+    .modal-overlay.on { display: flex; }
+
+    .modal-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 2.5rem; max-width: 420px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5); position: relative;
+    }
+
+    .modal-icon { font-size: 3rem; margin-bottom: 1rem; text-align: center; }
+
+    .modal-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.35rem; font-weight: 700; color: var(--cream);
+      margin-bottom: 0.75rem; text-align: center;
+    }
+
+    .modal-msg {
+      font-size: 0.95rem; color: var(--soft); line-height: 1.6;
+      margin-bottom: 1.5rem; text-align: center;
+    }
+
+    .modal-progress {
+      width: 100%; height: 4px; background: var(--panel);
+      border-radius: 2px; margin: 1.5rem 0; overflow: hidden;
+    }
+
+    .modal-progress-bar {
+      height: 100%; background: var(--amber); width: 0%; animation: load-pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes load-pulse { 0%{width:10%} 50%{width:80%} 100%{width:100%} }
+
+    .modal-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center; }
+
+    .mbtn {
+      flex: 1; min-width: 120px; padding: 0.75rem 1.2rem;
+      border-radius: 10px; border: none; cursor: pointer;
+      font-family: 'Outfit', sans-serif; font-weight: 600; font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+
+    .mbtn-primary {
+      background: var(--amber); color: #0e0c0a;
+      box-shadow: 0 0 20px rgba(245,166,35,0.2);
+    }
+
+    .mbtn-primary:hover { box-shadow: 0 0 30px rgba(245,166,35,0.4); }
+
+    .mbtn-secondary {
+      background: var(--panel); color: var(--cream);
+      border: 1px solid var(--border);
+    }
+
+    .mbtn-secondary:hover { border-color: rgba(245,166,35,0.3); }
+
     /* ══════════ UTILS ══════════ */
     @keyframes fadeup { from{opacity:0;transform:translateY(18px)} to{opacity:1;transform:translateY(0)} }
 
@@ -914,11 +975,28 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Loading Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-icon" id="modalIcon">⏳</div>
+    <div class="modal-title" id="modalTitle">Loading…</div>
+    <div class="modal-msg" id="modalMsg">Please wait while BLIP model initializes…</div>
+    <div class="modal-progress" id="modalProgress" style="display:none">
+      <div class="modal-progress-bar"></div>
+    </div>
+    <div class="modal-actions" id="modalActions"></div>
+  </div>
+</div>
+
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 let file = null, lastResult = null, showAttn = false;
 let stream = null, ws = null, camTimer = null;
 const history = [];
+let modelReady = false;
+let modelCheckCount = 0;
+let usingPreviewMode = false;
+const MODEL_CHECK_TIMEOUT = 180;  // max 3 min of retries
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 function goLanding() {
@@ -934,19 +1012,80 @@ function goApp(mode = 'image') {
   switchMode(mode);
 }
 
-// ── Health ping ─────────────────────────────────────────────────────────────
+// ── Health ping + Progressive Loading ──────────────────────────────────────
 async function ping() {
   try {
-    const r = await fetch('/api/health');
+    const r = await fetch('/api/health', { signal: AbortSignal.timeout(5000) });
     const d = await r.json();
+    modelReady = d.model?.status === 'ready';
+    
     document.getElementById('sLabel').textContent =
-      d.model?.status === 'ready' ? 'BLIP READY' : 'LOADING MODEL';
+      modelReady ? 'BLIP READY' : 'LOADING MODEL…';
     document.getElementById('sDot').style.background =
-      d.model?.status === 'ready' ? 'var(--amber)' : '#888';
-  } catch {
-    document.getElementById('sLabel').textContent = 'OFFLINE';
+      modelReady ? 'var(--amber)' : '#a89880';
+    
+    // If model still loading and timeout not exceeded, keep checking
+    if (!modelReady && modelCheckCount < MODEL_CHECK_TIMEOUT) {
+      modelCheckCount++;
+      setTimeout(ping, Math.min(modelCheckCount * 1500, 8000));
+    } else if (!modelReady && modelCheckCount >= MODEL_CHECK_TIMEOUT) {
+      document.getElementById('sLabel').textContent = 'MODEL TIMEOUT';
+      document.getElementById('sDot').style.background = 'var(--rust)';
+      showLoadingModal(
+        '⚠ Model Load Timeout',
+        'BLIP is taking longer than expected to initialize. You can still generate captions using preview mode (fast, no GPU).',
+        true
+      );
+    }
+  } catch (e) {
+    document.getElementById('sLabel').textContent = 'CONNECTION ERROR';
     document.getElementById('sDot').style.background = 'var(--rust)';
   }
+}
+
+// ── Loading Modal ──────────────────────────────────────────────────────────
+function showLoadingModal(title, msg, showFallback = false) {
+  const overlay = document.getElementById('modalOverlay');
+  const icon = document.getElementById('modalIcon');
+  const titleEl = document.getElementById('modalTitle');
+  const msgEl = document.getElementById('modalMsg');
+  const progress = document.getElementById('modalProgress');
+  const actions = document.getElementById('modalActions');
+
+  titleEl.textContent = title;
+  msgEl.textContent = msg;
+  icon.textContent = title.includes('Timeout') ? '⏱' : title.includes('Error') ? '⚠' : '⏳';
+  progress.style.display = 'none';
+  actions.innerHTML = '';
+
+  if (showFallback) {
+    const btn = document.createElement('button');
+    btn.className = 'mbtn mbtn-primary';
+    btn.textContent = '✦ Use Preview Mode';
+    btn.onclick = () => { enablePreviewMode(); };
+    actions.appendChild(btn);
+  }
+
+  overlay.classList.add('on');
+}
+
+function hideLoadingModal() {
+  document.getElementById('modalOverlay').classList.remove('on');
+}
+
+// ── Fallback Mode Management ────────────────────────────────────────────────
+function enablePreviewMode() {
+  usingPreviewMode = true;
+  document.getElementById('sLabel').textContent = 'PREVIEW MODE';
+  document.getElementById('sDot').style.background = '#d4a574';
+  hideLoadingModal();
+  toast('ℹ Preview mode enabled (fast, deterministic captions)');
+}
+
+function disablePreviewMode() {
+  usingPreviewMode = false;
+  modelReady && (document.getElementById('sLabel').textContent = 'BLIP READY');
+  document.getElementById('sDot').style.background = 'var(--amber)';
 }
 
 // ── Mode switch ─────────────────────────────────────────────────────────────
@@ -1008,7 +1147,7 @@ function toggleAttn() {
   toast(showAttn ? '🔥 Showing attention heatmap' : '🖼 Showing original image');
 }
 
-// ── Caption Generation ──────────────────────────────────────────────────────
+// ── Caption Generation with Fallback ──────────────────────────────────────
 async function doCaption() {
   if (!file) return;
 
@@ -1025,17 +1164,47 @@ async function doCaption() {
     fd.append('prompt',       document.getElementById('promptInput').value);
     fd.append('max_tokens',   '60');
 
-    const resp = await fetch('/api/caption', { method: 'POST', body: fd });
-    const data = await resp.json();
+    // Try real endpoint first (with timeout), fallback to preview
+    let data = null;
+    let useReal = true;
+    
+    try {
+      const resp = await fetch('/api/caption', { method: 'POST', body: fd, signal: AbortSignal.timeout(28000) });
+      data = await resp.json();
+      if (data.success) {
+        usingPreviewMode = false;
+        modelReady = true;
+      }
+    } catch (err) {
+      // Real endpoint failed/timed out; fallback to preview
+      if (!usingPreviewMode) {
+        toast('ℹ BLIP timeout; using preview mode…');
+        usingPreviewMode = true;
+      }
+      useReal = false;
+      try {
+        const fd2 = new FormData();
+        fd2.append('file', file);
+        fd2.append('num_captions', document.getElementById('numSelect').value);
+        const resp = await fetch('/api/caption-preview', { method: 'POST', body: fd2 });
+        data = await resp.json();
+      } catch (e) {
+        toast('⚠ ' + (e.message || 'All caption methods failed'));
+        return;
+      }
+    }
 
-    if (!data.success) { toast('⚠ ' + (data.error || 'Failed')); return; }
+    if (!data || !data.success) { toast('⚠ ' + (data?.error || 'Caption generation failed')); return; }
 
     lastResult = data;
     renderResults(data);
     addHistory(data.captions[0], URL.createObjectURL(file));
-    toast(`✦ ${data.captions.length} caption${data.captions.length > 1 ? 's' : ''} generated · ${data.inference_ms}ms`);
+    const label = usingPreviewMode ? 'preview' : 'BLIP';
+    toast(`✦ ${data.captions.length} caption${data.captions.length > 1 ? 's' : ''} via ${label} · ${data.inference_ms}ms`);
 
-  } catch(e) { toast('⚠ Backend unreachable. Is the server running?'); }
+  } catch(e) {
+    toast('⚠ ' + (e.message || 'Backend unreachable. Is the server running?'));
+  }
   finally {
     document.getElementById('genBtn').disabled = false;
     document.getElementById('imgLoader').classList.remove('on');
@@ -1056,19 +1225,20 @@ function renderResults(data) {
     const score = data.scores?.[i] ?? 0;
     const el = document.createElement('div');
     el.className = 'caption-item' + (i === 0 ? ' best' : '');
+    const escapedCap = cap.replace(/'/g, "\\'")
     el.innerHTML = `
       <div class="ci-rank">#${i+1}</div>
       <div class="ci-text">${cap}</div>
       <div class="ci-score">${(score * 100).toFixed(1)}%</div>
-      <button class="ci-copy" onclick="copyText('${cap.replace(/'/g,"\\'")}')">copy</button>
+      <button class="ci-copy" onclick="copyText('${escapedCap}')">copy</button>
     `;
     list.appendChild(el);
   });
 
   // Meta
   document.getElementById('mInf').textContent   = data.inference_ms + 'ms';
-  document.getElementById('mMode').textContent  = data.mode;
-  document.getElementById('mModel').textContent = 'BLIP-L';
+  document.getElementById('mMode').textContent  = data.mode + (usingPreviewMode ? ' (preview)' : '');
+  document.getElementById('mModel').textContent = usingPreviewMode ? 'Preview' : 'BLIP-L';
   document.getElementById('mSize').textContent  = data.image_size;
 }
 
@@ -1215,7 +1385,7 @@ function toast(msg, d = 3000) {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 ping();
-setInterval(ping, 15000);  // re-check model status every 15s during load
+setInterval(() => { if (!modelReady) ping(); }, 12000);  // re-check if model not ready
 </script>
 </body>
 </html>

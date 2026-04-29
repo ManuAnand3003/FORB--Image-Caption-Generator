@@ -21,9 +21,8 @@ import numpy as np
 from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
-from engine import caption_image, caption_frame, model_info as get_model_info
+from captioner import caption_image, caption_frame, model_info as get_model_info
 
 # ─── App ─────────────────────────────────────────────────────────────────────
 
@@ -40,8 +39,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 
 # ─── Startup: pre-load model ──────────────────────────────────────────────────
 
@@ -53,7 +50,7 @@ async def startup():
     """
     print("[VisionCaption] Pre-loading BLIP model at startup…")
     try:
-        from engine.captioner import _load
+        from captioner import _load
         _load()
     except Exception as e:
         print(f"[VisionCaption] Startup pre-load failed (will retry on first request): {e}")
@@ -63,7 +60,7 @@ async def startup():
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    html = Path("static/index.html").read_text(encoding="utf-8")
+    html = Path("index.html").read_text(encoding="utf-8")
     return HTMLResponse(content=html)
 
 
@@ -145,6 +142,52 @@ async def ws_stream(websocket: WebSocket):
             await websocket.send_json({"error": str(e)})
         except Exception:
             pass
+
+
+@app.post("/api/caption-preview")
+async def api_caption_preview(
+    file:         UploadFile = File(...),
+    num_captions: int        = Form(default=3),
+):
+    """
+    Quick preview: return placeholder captions without loading BLIP model.
+    Useful for testing UI, fallback when GPU unavailable, or demo mode.
+
+    Returns generic captions based on detected image properties (size, content hint).
+    """
+    try:
+        import io
+        from PIL import Image
+        
+        raw = await file.read()
+        pil = Image.open(io.BytesIO(raw)).convert("RGB")
+        w, h = pil.size
+        
+        # Generate deterministic placeholders based on image dimensions
+        aspect = w / h if h > 0 else 1.0
+        placeholders = [
+            f"A scene with dimensions {w}×{h} pixels, captured with artistic composition.",
+            f"An image in {'landscape' if aspect > 1.2 else 'portrait' if aspect < 0.8 else 'square'} orientation, rich in detail and color.",
+            f"A photograph showcasing interesting visual elements and atmospheric lighting.",
+            f"A vibrant image full of texture and visual interest, {w}px wide.",
+            f"An evocative scene captured with careful attention to composition.",
+        ]
+        
+        selected = placeholders[:min(num_captions, len(placeholders))]
+        return {
+            "success": True,
+            "captions": selected,
+            "scores": [0.88 - i*0.05 for i in range(len(selected))],
+            "inference_ms": 2,  # instant
+            "image_size": f"{w}×{h}",
+            "mode": "preview",
+            "attention_b64": None,
+            "model_info": {"status": "preview_mode", "note": "Placeholder captions for UI testing"},
+        }
+    
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 
 @app.get("/api/health")
