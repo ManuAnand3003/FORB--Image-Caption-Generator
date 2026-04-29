@@ -6,11 +6,13 @@ Tests for FastAPI endpoints (REST + WebSocket) and ML pipeline.
 Run with: pytest test_app.py -v
 """
 
+import base64
 import io
 import json
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
+import captioner
 from main import app
 
 
@@ -159,6 +161,22 @@ def test_websocket_rejects_invalid_data(client):
             pass
 
 
+def test_websocket_caption_roundtrip(client, sample_image):
+    """Test WebSocket accepts a valid JPEG frame and returns a caption payload."""
+    sample_image.seek(0)
+    payload = base64.b64encode(sample_image.read()).decode("utf-8")
+
+    with client.websocket_connect("/ws/stream") as websocket:
+        websocket.send_text(payload)
+        data = websocket.receive_json()
+
+    assert "caption" in data
+    assert "inference_ms" in data
+    assert data["frame_no"] == 1
+    assert isinstance(data["caption"], str)
+    assert data["inference_ms"] >= 0
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # INTEGRATION: FLOW TEST
 # ──────────────────────────────────────────────────────────────────────────────
@@ -197,13 +215,55 @@ def test_cors_headers(client):
 
 def test_caption_valid_modes(client, sample_image):
     """Test caption endpoint accepts valid modes."""
-    for mode in ["beam", "sample", "greedy"]:
+    for mode in ["beam", "accurate", "sample", "greedy"]:
         resp = client.post(
             "/api/caption-preview",
             files={"file": ("test.png", sample_image, "image/png")},
             data={"num_captions": 1},
         )
         assert resp.status_code == 200
+
+
+def test_web_assist_helper(monkeypatch):
+    """Test the web-assist helper returns context when the external lookup succeeds."""
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                "red apple",
+                ["Apple"],
+                ["Apple is an edible fruit produced by an apple tree."],
+                ["https://en.wikipedia.org/wiki/Apple"],
+            ]
+
+    monkeypatch.setattr(captioner.requests, "get", lambda *args, **kwargs: FakeResponse())
+    context = captioner._web_assist_context("a red apple on a table")
+    assert context is not None
+    assert "edible fruit" in context
+
+
+def test_caption_accurate_mode(client, sample_image):
+    """Test /api/caption accepts the higher-accuracy decoding mode."""
+    resp = client.post(
+        "/api/caption",
+        files={"file": ("test.png", sample_image, "image/png")},
+        data={
+            "mode": "accurate",
+            "num_captions": 3,
+            "prompt": "",
+            "max_tokens": 30,
+            "web_assist": "false",
+        },
+    )
+    if resp.status_code == 500:
+        assert "error" in resp.json()
+    else:
+        data = resp.json()
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["mode"] == "accurate"
 
 
 def test_caption_num_range(client, sample_image):

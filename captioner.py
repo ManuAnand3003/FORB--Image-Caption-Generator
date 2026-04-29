@@ -21,12 +21,33 @@ import time
 import warnings
 from pathlib import Path
 from typing import Optional
+import re
 
-import cv2
 import numpy as np
-from PIL import Image
+import requests
+from PIL import Image, ImageOps
 
 warnings.filterwarnings("ignore")
+warnings.filterwarnings(
+    "ignore",
+    message=r"numpy\.core is deprecated and has been renamed to numpy\._core.*",
+    category=DeprecationWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"builtin type SwigPyPacked has no __module__ attribute",
+    category=DeprecationWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"builtin type SwigPyObject has no __module__ attribute",
+    category=DeprecationWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"builtin type swigvarlink has no __module__ attribute",
+    category=DeprecationWarning,
+)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -71,8 +92,8 @@ def _pil_from_bytes(raw: bytes) -> Image.Image:
     return Image.open(io.BytesIO(raw)).convert("RGB")
 
 
-def _pil_from_bgr(frame: np.ndarray) -> Image.Image:
-    return Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+def _pil_from_frame(frame_rgb: np.ndarray) -> Image.Image:
+    return Image.fromarray(frame_rgb)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -82,9 +103,10 @@ def _pil_from_bgr(frame: np.ndarray) -> Image.Image:
 def caption_image(
     image_bytes: bytes,
     num_captions: int = 3,
-    mode: str = "beam",          # "beam" | "sample" | "greedy"
+    mode: str = "beam",          # "beam" | "sample" | "greedy" | "accurate"
     prompt: str = "",             # optional text prompt to condition on
     max_new_tokens: int = 60,
+    web_assist: bool = False,
 ) -> dict:
     """
     Generate captions for an uploaded image.
@@ -117,7 +139,20 @@ def caption_image(
 
     # ── Generate ───────────────────────────────────────────────────────────
     with torch.no_grad():
-        if mode == "beam":
+        if mode == "accurate":
+            out = _model.generate(
+                **inputs,
+                num_beams=max(num_captions, 8),
+                num_return_sequences=num_captions,
+                max_new_tokens=max_new_tokens,
+                early_stopping=True,
+                length_penalty=1.05,
+                repetition_penalty=1.2,
+                no_repeat_ngram_size=2,
+                output_scores=True,
+                return_dict_in_generate=True,
+            )
+        elif mode == "beam":
             out = _model.generate(
                 **inputs,
                 num_beams=max(num_captions, 5),
@@ -160,6 +195,7 @@ def caption_image(
 
     # ── Attention heatmap ──────────────────────────────────────────────────
     attn_b64 = _attention_heatmap(pil, inputs)
+    web_context = _web_assist_context(captions[0], prompt) if web_assist else None
 
     return {
         "captions":     captions,
@@ -168,6 +204,7 @@ def caption_image(
         "image_size":   f"{pil.width}×{pil.height}",
         "mode":         mode,
         "attention_b64": attn_b64,
+        "web_context":  web_context,
         "model_info":   {
             "name":     "BLIP-Large",
             "encoder":  "ViT-L/16 (Vision Transformer)",
@@ -186,7 +223,7 @@ def caption_frame(frame_bgr: np.ndarray, prompt: str = "") -> dict:
     _load()
     import torch
 
-    pil = _pil_from_bgr(frame_bgr)
+    pil = _pil_from_frame(frame_bgr)
     t0  = time.perf_counter()
 
     inputs = _processor(
@@ -210,6 +247,50 @@ def caption_frame(frame_bgr: np.ndarray, prompt: str = "") -> dict:
         "caption":      caption,
         "inference_ms": elapsed_ms,
     }
+
+
+def _web_assist_context(caption: str, prompt: str = "") -> Optional[str]:
+    """Try to enrich a caption with a short external context snippet.
+
+    This is intentionally opt-in and best-effort: if the network is unavailable
+    or the query is too generic, the function returns None.
+    """
+
+    stopwords = {
+        "a", "an", "and", "are", "at", "be", "been", "being", "but", "for",
+        "from", "in", "into", "is", "it", "near", "of", "on", "or", "the",
+        "this", "that", "to", "with", "woman", "man", "person", "people",
+        "scene", "image", "photo", "photograph", "picture", "there", "has",
+        "have", "standing", "sitting", "looking", "front", "background",
+    }
+    text = f"{prompt} {caption}".strip().lower()
+    tokens = [token for token in re.findall(r"[a-z][a-z0-9'-]{2,}", text) if token not in stopwords]
+    query = " ".join(tokens[:6]).strip() or caption.strip()
+    if not query:
+        return None
+
+    try:
+        resp = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "opensearch",
+                "search": query,
+                "limit": 1,
+                "namespace": 0,
+                "format": "json",
+            },
+            timeout=3.0,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        summaries = payload[2] if isinstance(payload, list) and len(payload) > 2 else []
+        if summaries and summaries[0]:
+            context = str(summaries[0]).strip()
+            return context[:220].rsplit(" ", 1)[0] + "..." if len(context) > 220 else context
+    except Exception as e:
+        print(f"[WebAssist] {e}")
+
+    return None
 # ══════════════════════════════════════════════════════════════════════════════
 # Scoring
 # ══════════════════════════════════════════════════════════════════════════════
@@ -225,6 +306,16 @@ def _compute_scores(out, inputs) -> list[float]:
     """
     import torch
 
+    if hasattr(out, "sequences_scores") and out.sequences_scores is not None:
+        raw_scores = out.sequences_scores.detach().float().cpu().tolist()
+        if len(raw_scores) == 1:
+            return [1.0]
+        low = min(raw_scores)
+        high = max(raw_scores)
+        if abs(high - low) < 1e-8:
+            return [0.5] * len(raw_scores)
+        return [round((score - low) / (high - low), 4) for score in raw_scores]
+
     if not hasattr(out, "scores") or not out.scores:
         return [1.0] * len(out.sequences)
 
@@ -233,13 +324,16 @@ def _compute_scores(out, inputs) -> list[float]:
         stacked = torch.stack(out.scores, dim=0)   # (T, B, V)
         log_probs = torch.log_softmax(stacked, dim=-1)  # per-step log dist
 
+        prompt_len = inputs.get("input_ids", None)
+        prompt_len = prompt_len.shape[-1] if prompt_len is not None else 0
+
         scores = []
         for i, seq in enumerate(out.sequences):
             if i >= log_probs.shape[1]:
                 scores.append(0.5)
                 continue
             # Gather log-prob of actually chosen token at each step
-            generated = seq[inputs["input_ids"].shape[-1]:]  # remove prompt tokens
+            generated = seq[prompt_len:]  # remove prompt tokens when available
             lp = 0.0
             for t, tok in enumerate(generated):
                 if t >= log_probs.shape[0]:
@@ -303,22 +397,18 @@ def _attention_heatmap(pil: Image.Image, inputs: dict) -> Optional[str]:
         heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
         heatmap = (heatmap * 255).astype(np.uint8)
 
-        # Resize to original image
+        # Resize to original image and colorize with a simple blue→red ramp.
         img_w, img_h = pil.size
-        heatmap_resized = cv2.resize(heatmap, (img_w, img_h), interpolation=cv2.INTER_CUBIC)
+        heatmap_img = Image.fromarray(heatmap).resize((img_w, img_h), Image.Resampling.BICUBIC)
+        colored = ImageOps.colorize(heatmap_img.convert("L"), black="#1f4b99", white="#f5a623")
 
-        # Apply colormap (JET: blue=low, red=high attention)
-        colored = cv2.applyColorMap(heatmap_resized, cv2.COLORMAP_JET)
+        # Blend: 55% original image, 45% attention heatmap.
+        overlay = Image.blend(pil.convert("RGB"), colored.convert("RGB"), alpha=0.45)
 
-        # Convert PIL to BGR for blending
-        img_bgr = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
-
-        # Blend: 55% original image, 45% attention heatmap
-        overlay = cv2.addWeighted(img_bgr, 0.55, colored, 0.45, 0)
-
-        # Encode as base64 JPEG
-        _, buf = cv2.imencode(".jpg", overlay, [cv2.IMWRITE_JPEG_QUALITY, 88])
-        b64 = base64.b64encode(buf).decode("utf-8")
+        # Encode as base64 JPEG.
+        buf = io.BytesIO()
+        overlay.save(buf, format="JPEG", quality=88)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
         return f"data:image/jpeg;base64,{b64}"
 
     except Exception as e:

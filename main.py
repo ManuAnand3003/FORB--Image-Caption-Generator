@@ -12,12 +12,16 @@ Endpoints:
 
 import base64
 import io
+import os
+import socket
 import time
 import traceback
+import threading
+import webbrowser
 from pathlib import Path
 
-import cv2
 import numpy as np
+from PIL import Image
 from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -33,13 +37,14 @@ from captioner import caption_image, caption_frame, model_info as get_model_info
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan handler that pre-loads the model without blocking the event loop."""
-    print("[VisionCaption] Pre-loading BLIP model at startup (threaded)…")
-    try:
-        from captioner import _load
-        # Load model in a thread to avoid blocking the event loop
-        await run_in_threadpool(_load)
-    except Exception as e:
-        print(f"[VisionCaption] Startup pre-load failed (will retry on first request): {e}")
+    if os.getenv("PRELOAD_MODEL", "0") not in {"0", "false", "False"}:
+        print("[VisionCaption] Pre-loading BLIP model at startup (threaded)…")
+        try:
+            from captioner import _load
+            # Load model in a thread to avoid blocking the event loop
+            await run_in_threadpool(_load)
+        except Exception as e:
+            print(f"[VisionCaption] Startup pre-load failed (will retry on first request): {e}")
     yield
 
 
@@ -73,6 +78,7 @@ async def api_caption(
     num_captions: int        = Form(default=3),
     prompt:       str        = Form(default=""),
     max_tokens:   int        = Form(default=60),
+    web_assist:   bool       = Form(default=False),
 ):
     """
     Caption an uploaded image.
@@ -94,6 +100,7 @@ async def api_caption(
             mode,
             prompt.strip(),
             min(max(max_tokens, 20), 120),
+            web_assist,
         )
         return {"success": True, **result}
 
@@ -123,8 +130,7 @@ async def ws_stream(websocket: WebSocket):
                 data = data.split(",", 1)[1]
 
             img_bytes = base64.b64decode(data)
-            nparr     = np.frombuffer(img_bytes, np.uint8)
-            frame     = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            frame     = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
 
             if frame is None:
                 continue
@@ -206,6 +212,30 @@ async def health():
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
+def _wait_and_open_browser(url: str, host: str, port: int, timeout: float = 30.0) -> None:
+    """Wait until the local server is reachable, then open the browser once."""
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                webbrowser.open(url, new=2)
+                return
+        except OSError:
+            time.sleep(0.25)
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    browser_host = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+    url = f"http://{browser_host}:{port}"
+
+    if os.getenv("OPEN_BROWSER", "1") not in {"0", "false", "False"}:
+        threading.Thread(
+            target=_wait_and_open_browser,
+            args=(url, host, port),
+            daemon=True,
+        ).start()
+
+    uvicorn.run("main:app", host=host, port=port, reload=False, http="h11")

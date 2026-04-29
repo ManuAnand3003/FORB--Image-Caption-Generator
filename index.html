@@ -421,6 +421,18 @@
     .ctrl-input::placeholder { color: var(--muted); }
     .ctrl-input:focus { border-color: rgba(245,166,35,0.3); }
 
+    .ctrl-check {
+      display: flex; align-items: center; gap: 0.45rem;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 9px; padding: 0.45rem 0.75rem; min-height: 40px;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
+      color: var(--soft);
+      cursor: pointer; user-select: none;
+    }
+
+    .ctrl-check input { accent-color: var(--amber); }
+    .ctrl-check span { white-space: nowrap; }
+
     .gen-btn {
       padding: 0.6rem 2rem; background: var(--amber); color: #0e0c0a;
       font-family: 'Outfit', sans-serif; font-size: 0.88rem; font-weight: 600;
@@ -505,6 +517,29 @@
       font-size: 1.35rem; font-style: italic; color: var(--cream);
       line-height: 1.6; padding: 1.2rem 0; min-height: 80px;
       border-bottom: 1px solid var(--border); margin-bottom: 1rem;
+    }
+
+    .web-context {
+      margin: -0.25rem 0 1rem;
+      padding: 0.8rem 0.95rem;
+      border: 1px solid rgba(245,166,35,0.14);
+      border-radius: 12px;
+      background: rgba(245,166,35,0.04);
+      color: var(--soft);
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.82rem;
+      line-height: 1.6;
+      display: none;
+    }
+
+    .web-context strong {
+      color: var(--amber);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      display: block;
+      margin-bottom: 0.3rem;
     }
 
     .cursor { display: inline-block; width: 2px; height: 1.1em; background: var(--amber); vertical-align: text-bottom; animation: blink 1s step-end infinite; margin-left: 2px; }
@@ -857,6 +892,7 @@
             <span class="ctrl-label">Mode</span>
             <select class="ctrl-select" id="modeSelect">
               <option value="beam">Beam Search (Best)</option>
+              <option value="accurate">High Accuracy (Slower)</option>
               <option value="sample">Nucleus Sampling (Creative)</option>
               <option value="greedy">Greedy (Fastest)</option>
             </select>
@@ -873,6 +909,10 @@
             <span class="ctrl-label">Prompt (optional)</span>
             <input class="ctrl-input" id="promptInput" type="text" placeholder='e.g. "a photograph of"'/>
           </div>
+          <label class="ctrl-check" title="Use internet context when available to enrich the caption">
+            <input type="checkbox" id="webAssist" />
+            <span>Web assist</span>
+          </label>
           <button class="gen-btn" id="genBtn" onclick="doCaption()">✦ Generate Captions</button>
         </div>
 
@@ -896,6 +936,8 @@
         <div id="resContent" style="display:none">
           <!-- Typewriter best caption -->
           <div class="typewriter-container" id="twContainer"></div>
+
+          <div class="web-context" id="webContext"></div>
 
           <!-- All caption candidates -->
           <div class="caption-list" id="capList"></div>
@@ -1133,6 +1175,7 @@ function resetImg() {
   document.getElementById('resEmpty').style.display = 'flex';
   document.getElementById('resContent').style.display = 'none';
   document.getElementById('attnBtn').classList.remove('attn-on');
+  document.getElementById('webContext').style.display = 'none';
   fi.value = '';
 }
 
@@ -1163,6 +1206,7 @@ async function doCaption() {
     fd.append('num_captions', document.getElementById('numSelect').value);
     fd.append('prompt',       document.getElementById('promptInput').value);
     fd.append('max_tokens',   '60');
+    fd.append('web_assist',   document.getElementById('webAssist').checked ? 'true' : 'false');
 
     // Try real endpoint first (with timeout), fallback to preview
     let data = null;
@@ -1243,6 +1287,15 @@ function renderResults(data) {
   document.getElementById('mMode').textContent  = data.mode + (usingPreviewMode ? ' (preview)' : '');
   document.getElementById('mModel').textContent = usingPreviewMode ? 'Preview' : 'BLIP-L';
   document.getElementById('mSize').textContent  = data.image_size;
+
+  const webContext = document.getElementById('webContext');
+  if (data.web_context) {
+    webContext.style.display = 'block';
+    webContext.innerHTML = `<strong>Web assist</strong>${data.web_context}`;
+  } else {
+    webContext.style.display = 'none';
+    webContext.innerHTML = '';
+  }
 }
 
 // ── Typewriter Effect ───────────────────────────────────────────────────────

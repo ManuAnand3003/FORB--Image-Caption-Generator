@@ -16,10 +16,12 @@ Generate natural language captions for any image using Salesforce BLIP (Vision T
 |---------|---------|
 | 📸 **Image Upload** | Drag & drop or click to upload JPG/PNG/WEBP. Instant preview. |
 | 🔭 **Beam Search** | Generate 3–5 caption candidates ranked by confidence. Deterministic, high-quality. |
+| 🎯 **High Accuracy Mode** | Uses a wider beam and stronger decoding constraints for better caption quality. |
 | 🎲 **Nucleus Sampling** | Temperature-based sampling for creative, diverse captions. Different each run. |
 | ⚡ **Greedy Decode** | Fastest mode: single caption per image. Real-time constrained environments. |
 | 🔥 **Attention Heatmap** | Extract ViT cross-attention, overlay on image. See where model "looked". |
 | 💬 **Text Prompting** | Condition decoder with optional prefix (e.g., "a photograph of"). |
+| 🌐 **Web Assist** | Optional internet-backed context lookup for extra detail when the network is available. |
 | 📊 **Confidence Scores** | Log-probability normalized (0–1) per caption. |
 | 📷 **Live Webcam** | WebSocket stream, captions every ~3s. Typewriter effect. Session log. |
 | 🗂 **Session History** | Thumbnails + captions of all uploads. Click to replay. |
@@ -49,7 +51,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Open **http://localhost:8000** in your browser.
+The browser opens automatically after the server is ready. If you want to disable that, set `OPEN_BROWSER=0` before running `python main.py`.
+If you want the BLIP model preloaded before the UI appears, set `PRELOAD_MODEL=1`.
 
 **First run:** Downloads BLIP-Large (~1.9 GB). Cached in `~/.cache/huggingface/`. Subsequent runs: instant.
 
@@ -58,7 +61,9 @@ Open **http://localhost:8000** in your browser.
 ## 📋 API Reference
 
 ### `POST /api/caption` — Caption with BLIP
-Form: `file`, `mode` ("beam"|"sample"|"greedy"), `num_captions` (1–5), `prompt`, `max_tokens`
+Form: `file`, `mode` ("beam"|"accurate"|"sample"|"greedy"), `num_captions` (1–5), `prompt`, `max_tokens`, `web_assist`
+
+`web_assist=true` is opt-in. When the network is available, the app will try to look up a short context snippet from Wikipedia and show it beside the caption results. If the lookup fails, the local caption still works normally.
 
 ### `POST /api/caption-preview` — Quick preview (no GPU)
 Instant deterministic captions based on image dimensions.
@@ -223,6 +228,7 @@ BLIP: HuggingFace hub (free for research & commercial). Transformers: MIT.
 | WebSocket refused | Check firewall; ensure port 8000 open |
 | Slow first inference | Normal; model pre-loads. Subsequent: cached in memory |
 | Timeout | Frontend auto-falls back to preview mode |
+| Web assist unavailable | Check connectivity. The local caption still works without internet. |
 
 ---
 
